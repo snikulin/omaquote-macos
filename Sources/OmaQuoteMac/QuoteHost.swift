@@ -209,7 +209,11 @@ final class QuoteHost: NSObject {
                         }
                     }
                 }
-                _ = try runtime.intervalSucceeded()
+                if minutes > 0 && intervalTimer?.isValid != true {
+                    try apply(runtime.intervalFailed("Could not schedule the quote interval"))
+                } else {
+                    _ = try runtime.intervalSucceeded()
+                }
             case .stopInterval:
                 intervalTimer?.invalidate()
                 intervalTimer = nil
