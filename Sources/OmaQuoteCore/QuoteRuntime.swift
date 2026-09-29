@@ -65,14 +65,14 @@ public final class QuoteRuntime {
     }
 
     public static func bundledCollection() throws -> String {
-        guard let url = Bundle.module.url(forResource: "quotes", withExtension: "json", subdirectory: "Resources") else {
+        guard let url = try resourceBundle().url(forResource: "quotes", withExtension: "json", subdirectory: "Resources") else {
             throw QuoteRuntimeError.missingResource("quotes.json")
         }
         return try String(contentsOf: url, encoding: .utf8)
     }
 
     public static func bundledConfiguration() throws -> String {
-        guard let url = Bundle.module.url(forResource: "default-config", withExtension: "json", subdirectory: "Resources") else {
+        guard let url = try resourceBundle().url(forResource: "default-config", withExtension: "json", subdirectory: "Resources") else {
             throw QuoteRuntimeError.missingResource("default-config.json")
         }
         return try String(contentsOf: url, encoding: .utf8)
@@ -298,7 +298,7 @@ public final class QuoteRuntime {
     }
 
     private func loadScript(_ name: String) throws {
-        guard let url = Bundle.module.url(forResource: name, withExtension: "js", subdirectory: "Resources") else {
+        guard let url = try Self.resourceBundle().url(forResource: name, withExtension: "js", subdirectory: "Resources") else {
             throw QuoteRuntimeError.missingResource("\(name).js")
         }
         let source = try String(contentsOf: url, encoding: .utf8)
@@ -306,6 +306,15 @@ public final class QuoteRuntime {
         let script = source.hasPrefix(".pragma library\n") ? String(source.dropFirst(".pragma library\n".count)) : source
         context.evaluateScript(script, withSourceURL: url)
         try checkException()
+    }
+
+    private static func resourceBundle() throws -> Bundle {
+        guard Bundle.main.bundleURL.pathExtension == "app" else { return Bundle.module }
+        guard let resources = Bundle.main.resourceURL,
+              let bundle = Bundle(url: resources.appendingPathComponent("OmaQuoteMac_OmaQuoteCore.bundle")) else {
+            throw QuoteRuntimeError.missingResource("OmaQuoteMac_OmaQuoteCore.bundle")
+        }
+        return bundle
     }
 
     private func invoke(_ function: String, arguments: [Any]) throws -> JSValue {

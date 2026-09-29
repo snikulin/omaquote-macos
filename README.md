@@ -14,7 +14,7 @@ I could not find a macOS counterpart with OmaQuote's combination of a click-thro
 
 ## Install from GitHub with Homebrew
 
-This formula builds the app locally from the public source tag. It requires macOS 26, Apple Silicon, and Xcode 27.
+This formula builds the app locally from the public source tag. It requires macOS 26, Apple Silicon, and Xcode 26.6 or later.
 
 ```sh
 brew tap snikulin/omaquote-macos https://github.com/snikulin/omaquote-macos.git

@@ -21,7 +21,7 @@ host runs the shared Linux OmaQuote JavaScript engine through JavaScriptCore.
 
 ## Local workflow
 
-Use Xcode 27 on macOS 26. Set `DEVELOPER_DIR` to
+Use Xcode 26.6 or later on macOS 26. Set `DEVELOPER_DIR` to
 `/Applications/Xcode.app/Contents/Developer` if `xcode-select` points at
 Command Line Tools.
 
