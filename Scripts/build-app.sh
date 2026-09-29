@@ -10,8 +10,8 @@ if ! xcodebuild -version >/dev/null 2>&1; then
 fi
 
 cd "$repo_root"
-swift build -c "$configuration"
-bin_path="$(swift build -c "$configuration" --show-bin-path)"
+swift build --disable-sandbox -c "$configuration"
+bin_path="$(swift build --disable-sandbox -c "$configuration" --show-bin-path)"
 mkdir -p "$destination/Contents/MacOS" "$destination/Contents/Resources"
 cp App/Info.plist "$destination/Contents/Info.plist"
 cp "$bin_path/OmaQuoteMac" "$destination/Contents/MacOS/OmaQuoteMac"
