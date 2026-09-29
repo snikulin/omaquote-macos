@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import OmaQuoteCore
 
 @main
@@ -49,7 +50,14 @@ struct OmaQuoteCLI {
         if let override = ProcessInfo.processInfo.environment["OMAQUOTE_APP_PATH"] {
             application = URL(fileURLWithPath: override)
         } else {
-            let binary = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+            var pathLength: UInt32 = 0
+            _ = _NSGetExecutablePath(nil, &pathLength)
+            var pathBytes = [CChar](repeating: 0, count: Int(pathLength))
+            guard _NSGetExecutablePath(&pathBytes, &pathLength) == 0 else {
+                throw CLIError.appNotFound
+            }
+            let executablePath = String(decoding: pathBytes.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+            let binary = URL(fileURLWithPath: executablePath).resolvingSymlinksInPath()
             var directory = binary.deletingLastPathComponent()
             while directory.path != "/" && directory.pathExtension != "app" {
                 directory.deleteLastPathComponent()

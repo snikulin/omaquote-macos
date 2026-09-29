@@ -67,6 +67,19 @@ final class QuoteRuntimeTests: XCTestCase {
         XCTAssertTrue(recoveredStatus["lastError"] is NSNull)
     }
 
+    func testCollectionReloadUsesProvidedRandomSelection() throws {
+        let runtime = try QuoteRuntime()
+        try runtime.initialize(
+            collectionJSON: collection,
+            configurationJSON: #"{"version":1,"selectionMode":"random"}"#,
+            randomValues: [0]
+        )
+        try runtime.reloadCollection(collectionJSON: """
+            {"version":1,"quotes":[{"text":"New A"},{"text":"New B"},{"text":"New C"}]}
+            """, randomValues: [0.99])
+        XCTAssertEqual(runtime.currentQuote?.text, "New C")
+    }
+
     func testConfigurationReloadRestartsIntervalAndRejectsInvalidUpdate() throws {
         let runtime = try QuoteRuntime()
         try runtime.initialize(collectionJSON: collection, randomValues: [0, 0])

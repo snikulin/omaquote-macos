@@ -93,8 +93,7 @@ public final class QuoteRuntime {
         let state = try persistedStateJSON.map {
             try parse("parseState", raw: $0, error: QuoteRuntimeError.invalidState)
         }
-        let count = Int(collection.forProperty("quotes")?.forProperty("length")?.toInt32() ?? 0)
-        let choices = randomValues ?? (0..<count).map { _ in Double.random(in: 0..<1) }
+        let choices = randomValues ?? randomChoices(for: collection)
         guard let options = JSValue(newObjectIn: context) else {
             throw QuoteRuntimeError.javascript("Could not create engine options")
         }
@@ -114,8 +113,7 @@ public final class QuoteRuntime {
     @discardableResult
     public func next(randomValues: [Double]? = nil, source: String = "explicit") throws -> [QuoteEffect] {
         let current = try currentModel()
-        let count = Int(current.forProperty("quotes")?.forProperty("length")?.toInt32() ?? 0)
-        let choices = randomValues ?? (0..<count).map { _ in Double.random(in: 0..<1) }
+        let choices = randomValues ?? randomChoices(for: current)
         let result = try invoke("advance", arguments: [current, choices, source])
         return try applyResult(result, function: "advance")
     }
@@ -139,7 +137,9 @@ public final class QuoteRuntime {
     }
 
     @discardableResult
-    public func reloadCollection(collectionJSON: String, kind: String = "user") throws -> [QuoteEffect] {
+    public func reloadCollection(
+        collectionJSON: String, kind: String = "user", randomValues: [Double]? = nil
+    ) throws -> [QuoteEffect] {
         let current = try currentModel()
         let collection: JSValue
         do {
@@ -148,7 +148,11 @@ public final class QuoteRuntime {
             let result = try invoke("collectionReloadFailed", arguments: [current, message])
             return try applyResult(result, function: "collectionReloadFailed")
         }
-        let result = try invoke("reloadCollection", arguments: [current, collection, ["collectionKind": kind]])
+        let options: [String: Any] = [
+            "collectionKind": kind,
+            "randomValues": randomValues ?? randomChoices(for: collection)
+        ]
+        let result = try invoke("reloadCollection", arguments: [current, collection, options])
         return try applyResult(result, function: "reloadCollection")
     }
 
@@ -162,8 +166,7 @@ public final class QuoteRuntime {
             let result = try invoke("configurationReloadFailed", arguments: [current, message])
             return try applyResult(result, function: "configurationReloadFailed")
         }
-        let count = Int(current.forProperty("quotes")?.forProperty("length")?.toInt32() ?? 0)
-        let randomValues = (0..<count).map { _ in Double.random(in: 0..<1) }
+        let randomValues = randomChoices(for: current)
         let result = try invoke("reloadConfiguration", arguments: [current, parsed, randomValues])
         let effects = try applyResult(result, function: "reloadConfiguration")
         configuration = parsed
@@ -205,8 +208,7 @@ public final class QuoteRuntime {
     @discardableResult
     public func observeWallpaper(pathSignature: String) throws -> [QuoteEffect] {
         let current = try currentModel()
-        let count = Int(current.forProperty("quotes")?.forProperty("length")?.toInt32() ?? 0)
-        let randomValues = (0..<count).map { _ in Double.random(in: 0..<1) }
+        let randomValues = randomChoices(for: current)
         return try transition("observeWallpaper", arguments: [pathSignature, randomValues])
     }
 
@@ -309,6 +311,11 @@ public final class QuoteRuntime {
     private func currentModel() throws -> JSValue {
         guard let model else { throw QuoteRuntimeError.missingResult("initialize") }
         return model
+    }
+
+    private func randomChoices(for value: JSValue) -> [Double] {
+        let count = Int(value.forProperty("quotes")?.forProperty("length")?.toInt32() ?? 0)
+        return (0..<count).map { _ in Double.random(in: 0..<1) }
     }
 
     private func resultModel(_ result: JSValue, function: String) throws -> JSValue {
