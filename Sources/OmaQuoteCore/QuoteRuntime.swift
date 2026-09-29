@@ -6,10 +6,35 @@ public struct Quote: Equatable {
     public let attribution: String?
 }
 
+public enum QuoteEffectKind: Equatable {
+    case updatePresentation
+    case persistState
+    case restartInterval
+    case stopInterval
+}
+
+public enum QuoteEffect: Equatable {
+    case updatePresentation(Quote?)
+    case persistState(String, recoverHealthOnSave: Bool)
+    case restartInterval(minutes: Int)
+    case stopInterval
+
+    public var kind: QuoteEffectKind {
+        switch self {
+        case .updatePresentation: .updatePresentation
+        case .persistState: .persistState
+        case .restartInterval: .restartInterval
+        case .stopInterval: .stopInterval
+        }
+    }
+}
+
 public enum QuoteRuntimeError: Error, LocalizedError {
     case missingResource(String)
     case javascript(String)
     case invalidCollection(String)
+    case invalidConfiguration(String)
+    case invalidState(String)
     case missingResult(String)
 
     public var errorDescription: String? {
@@ -17,6 +42,8 @@ public enum QuoteRuntimeError: Error, LocalizedError {
         case .missingResource(let name): "Missing bundled resource: \(name)"
         case .javascript(let message): "JavaScript error: \(message)"
         case .invalidCollection(let message): "Invalid Quote Collection: \(message)"
+        case .invalidConfiguration(let message): "Invalid configuration: \(message)"
+        case .invalidState(let message): "Invalid persisted state: \(message)"
         case .missingResult(let function): "No result from \(function)"
         }
     }
@@ -26,6 +53,7 @@ public enum QuoteRuntimeError: Error, LocalizedError {
 public final class QuoteRuntime {
     private let context: JSContext
     private var model: JSValue?
+    private var configuration: JSValue?
 
     public init() throws {
         guard let context = JSContext() else {
@@ -44,45 +72,199 @@ public final class QuoteRuntime {
     }
 
     public var currentQuote: Quote? {
-        guard let quote = model?.forProperty("activeQuote"), !quote.isNull, !quote.isUndefined,
-              let text = quote.forProperty("text")?.toString() else { return nil }
-        let attribution = quote.forProperty("attribution")
-        return Quote(text: text, attribution: attribution?.isUndefined == false ? attribution?.toString() : nil)
+        quote(from: model?.forProperty("activeQuote"))
     }
 
-    public func initialize(collectionJSON: String, randomValues: [Double]? = nil) throws {
-        let parsed = try invoke("parseCollection", arguments: [collectionJSON])
-        guard parsed.forProperty("ok")?.toBool() == true else {
-            let message = parsed.forProperty("error")?.forProperty("message")?.toString() ?? "Unknown error"
-            throw QuoteRuntimeError.invalidCollection(message)
+    @discardableResult
+    public func initialize(
+        collectionJSON: String,
+        configurationJSON: String? = nil,
+        persistedStateJSON: String? = nil,
+        collectionKind: String = "bundled",
+        collectionError: String? = nil,
+        configurationError: String? = nil,
+        stateError: String? = nil,
+        randomValues: [Double]? = nil
+    ) throws -> [QuoteEffect] {
+        let collection = try parse("parseCollection", raw: collectionJSON, error: QuoteRuntimeError.invalidCollection)
+        let configuration = try configurationJSON.map {
+            try parse("parseConfiguration", raw: $0, error: QuoteRuntimeError.invalidConfiguration)
+        } ?? invoke("defaultConfiguration", arguments: [])
+        let state = try persistedStateJSON.map {
+            try parse("parseState", raw: $0, error: QuoteRuntimeError.invalidState)
         }
-        let count = Int(parsed.forProperty("value")?.forProperty("quotes")?.forProperty("length")?.toInt32() ?? 0)
+        let count = Int(collection.forProperty("quotes")?.forProperty("length")?.toInt32() ?? 0)
         let choices = randomValues ?? (0..<count).map { _ in Double.random(in: 0..<1) }
-        let result = try invoke("initialize", arguments: [parsed.forProperty("value") as Any, ["randomValues": choices]])
-        model = try resultModel(result, function: "initialize")
+        guard let options = JSValue(newObjectIn: context) else {
+            throw QuoteRuntimeError.javascript("Could not create engine options")
+        }
+        options.setValue(choices, forProperty: "randomValues")
+        options.setValue(configuration, forProperty: "configuration")
+        if let state { options.setValue(state, forProperty: "persistedState") }
+        options.setValue(collectionKind, forProperty: "collectionKind")
+        if let collectionError { options.setValue(collectionError, forProperty: "collectionError") }
+        if let configurationError { options.setValue(configurationError, forProperty: "configurationError") }
+        if let stateError { options.setValue(stateError, forProperty: "stateError") }
+        let result = try invoke("initialize", arguments: [collection, options])
+        let effects = try applyResult(result, function: "initialize")
+        self.configuration = configuration
+        return effects
     }
 
-    public func next(randomValues: [Double]? = nil, source: String = "explicit") throws {
+    @discardableResult
+    public func next(randomValues: [Double]? = nil, source: String = "explicit") throws -> [QuoteEffect] {
         let current = try currentModel()
         let count = Int(current.forProperty("quotes")?.forProperty("length")?.toInt32() ?? 0)
         let choices = randomValues ?? (0..<count).map { _ in Double.random(in: 0..<1) }
         let result = try invoke("advance", arguments: [current, choices, source])
-        model = try resultModel(result, function: "advance")
+        return try applyResult(result, function: "advance")
     }
 
-    public func previous() throws {
+    @discardableResult
+    public func previous() throws -> [QuoteEffect] {
         let result = try invoke("previous", arguments: [currentModel()])
-        model = try resultModel(result, function: "previous")
+        return try applyResult(result, function: "previous")
     }
 
-    public func pause() throws {
+    @discardableResult
+    public func pause() throws -> [QuoteEffect] {
         let result = try invoke("pauseAutomaticAdvance", arguments: [currentModel()])
-        model = try resultModel(result, function: "pauseAutomaticAdvance")
+        return try applyResult(result, function: "pauseAutomaticAdvance")
     }
 
-    public func resume() throws {
+    @discardableResult
+    public func resume() throws -> [QuoteEffect] {
         let result = try invoke("resumeAutomaticAdvance", arguments: [currentModel()])
-        model = try resultModel(result, function: "resumeAutomaticAdvance")
+        return try applyResult(result, function: "resumeAutomaticAdvance")
+    }
+
+    @discardableResult
+    public func reloadCollection(collectionJSON: String, kind: String = "user") throws -> [QuoteEffect] {
+        let current = try currentModel()
+        let collection: JSValue
+        do {
+            collection = try parse("parseCollection", raw: collectionJSON, error: QuoteRuntimeError.invalidCollection)
+        } catch QuoteRuntimeError.invalidCollection(let message) {
+            let result = try invoke("collectionReloadFailed", arguments: [current, message])
+            return try applyResult(result, function: "collectionReloadFailed")
+        }
+        let result = try invoke("reloadCollection", arguments: [current, collection, ["collectionKind": kind]])
+        return try applyResult(result, function: "reloadCollection")
+    }
+
+    @discardableResult
+    public func reloadConfiguration(configurationJSON: String) throws -> [QuoteEffect] {
+        let current = try currentModel()
+        let parsed: JSValue
+        do {
+            parsed = try parse("parseConfiguration", raw: configurationJSON, error: QuoteRuntimeError.invalidConfiguration)
+        } catch QuoteRuntimeError.invalidConfiguration(let message) {
+            let result = try invoke("configurationReloadFailed", arguments: [current, message])
+            return try applyResult(result, function: "configurationReloadFailed")
+        }
+        let count = Int(current.forProperty("quotes")?.forProperty("length")?.toInt32() ?? 0)
+        let randomValues = (0..<count).map { _ in Double.random(in: 0..<1) }
+        let result = try invoke("reloadConfiguration", arguments: [current, parsed, randomValues])
+        let effects = try applyResult(result, function: "reloadConfiguration")
+        configuration = parsed
+        return effects
+    }
+
+    public func configurationJSON() throws -> String {
+        guard let configuration else {
+            throw QuoteRuntimeError.missingResult("configuration")
+        }
+        return try stringify(configuration)
+    }
+
+    public func defaultConfigurationJSON() throws -> String {
+        try stringify(invoke("defaultConfiguration", arguments: []))
+    }
+
+    private func stringify(_ value: JSValue) throws -> String {
+        guard let stringify = context.objectForKeyedSubscript("JSON")?.forProperty("stringify"),
+              let result = stringify.call(withArguments: [value])?.toString() else {
+            throw QuoteRuntimeError.missingResult("JSON.stringify")
+        }
+        try checkException()
+        return result
+    }
+
+    public func validateCollection(_ raw: String) throws {
+        _ = try parse("parseCollection", raw: raw, error: QuoteRuntimeError.invalidCollection)
+    }
+
+    public func validateConfiguration(_ raw: String) throws {
+        _ = try parse("parseConfiguration", raw: raw, error: QuoteRuntimeError.invalidConfiguration)
+    }
+
+    public func validateState(_ raw: String) throws {
+        _ = try parse("parseState", raw: raw, error: QuoteRuntimeError.invalidState)
+    }
+
+    @discardableResult
+    public func observeWallpaper(pathSignature: String) throws -> [QuoteEffect] {
+        let current = try currentModel()
+        let count = Int(current.forProperty("quotes")?.forProperty("length")?.toInt32() ?? 0)
+        let randomValues = (0..<count).map { _ in Double.random(in: 0..<1) }
+        return try transition("observeWallpaper", arguments: [pathSignature, randomValues])
+    }
+
+    @discardableResult
+    public func rebaselineWallpaper(pathSignature: String) throws -> [QuoteEffect] {
+        try currentModel().setValue(NSNull(), forProperty: "wallpaperBaseline")
+        try checkException()
+        return try observeWallpaper(pathSignature: pathSignature)
+    }
+
+    @discardableResult
+    public func wallpaperUnavailable(_ message: String) throws -> [QuoteEffect] {
+        try transition("wallpaperUnavailable", arguments: [message])
+    }
+
+    @discardableResult
+    public func setVisibility(_ visible: Bool) throws -> [QuoteEffect] {
+        try transition("setRuntimeVisibility", arguments: [visible])
+    }
+
+    @discardableResult
+    public func toggleVisibility() throws -> [QuoteEffect] {
+        try transition("toggleRuntimeVisibility")
+    }
+
+    @discardableResult
+    public func togglePause() throws -> [QuoteEffect] {
+        try transition("toggleAutomaticAdvancePause")
+    }
+
+    @discardableResult
+    public func persistenceFailed(_ message: String) throws -> [QuoteEffect] {
+        try transition("persistenceFailed", arguments: [message])
+    }
+
+    @discardableResult
+    public func persistenceSucceeded() throws -> [QuoteEffect] {
+        try transition("persistenceSucceeded")
+    }
+
+    @discardableResult
+    public func intervalFailed(_ message: String) throws -> [QuoteEffect] {
+        try transition("intervalFailed", arguments: [message])
+    }
+
+    @discardableResult
+    public func intervalSucceeded() throws -> [QuoteEffect] {
+        try transition("intervalSucceeded")
+    }
+
+    @discardableResult
+    public func setPresentationOverflow(_ overflowing: Bool) throws -> [QuoteEffect] {
+        try transition("setPresentationOverflow", arguments: [overflowing])
+    }
+
+    private func transition(_ function: String, arguments: [Any] = []) throws -> [QuoteEffect] {
+        let result = try invoke(function, arguments: [currentModel()] + arguments)
+        return try applyResult(result, function: function)
     }
 
     public func statusJSON() throws -> String {
@@ -110,6 +292,20 @@ public final class QuoteRuntime {
         return result
     }
 
+    private func parse(
+        _ function: String,
+        raw: String,
+        error: (String) -> QuoteRuntimeError
+    ) throws -> JSValue {
+        let result = try invoke(function, arguments: [raw])
+        guard result.forProperty("ok")?.toBool() == true,
+              let value = result.forProperty("value") else {
+            let message = result.forProperty("error")?.forProperty("message")?.toString() ?? "Unknown error"
+            throw error(message)
+        }
+        return value
+    }
+
     private func currentModel() throws -> JSValue {
         guard let model else { throw QuoteRuntimeError.missingResult("initialize") }
         return model
@@ -120,6 +316,50 @@ public final class QuoteRuntime {
             throw QuoteRuntimeError.missingResult(function)
         }
         return model
+    }
+
+    private func quote(from value: JSValue?) -> Quote? {
+        guard let value, !value.isNull, !value.isUndefined,
+              let text = value.forProperty("text")?.toString() else { return nil }
+        let attribution = value.forProperty("attribution")
+        return Quote(text: text, attribution: attribution?.isUndefined == false ? attribution?.toString() : nil)
+    }
+
+    private func applyResult(_ result: JSValue, function: String) throws -> [QuoteEffect] {
+        let nextModel = try resultModel(result, function: function)
+        guard let effectsValue = result.forProperty("effects"), !effectsValue.isUndefined,
+              let count = effectsValue.forProperty("length")?.toInt32() else {
+            throw QuoteRuntimeError.missingResult("\(function).effects")
+        }
+        var effects: [QuoteEffect] = []
+        for index in 0..<Int(count) {
+            guard let effect = effectsValue.atIndex(index),
+                  let type = effect.forProperty("type")?.toString() else {
+                throw QuoteRuntimeError.missingResult("\(function).effects[\(index)]")
+            }
+            switch type {
+            case "update-presentation":
+                effects.append(.updatePresentation(quote(from: effect.forProperty("quote"))))
+            case "persist-state":
+                guard let state = effect.forProperty("state") else {
+                    throw QuoteRuntimeError.missingResult("persist-state.state")
+                }
+                let serialized = try invoke("serializeState", arguments: [state])
+                guard serialized.forProperty("ok")?.toBool() == true,
+                      let text = serialized.forProperty("value")?.toString() else {
+                    throw QuoteRuntimeError.javascript("Could not serialize persisted state")
+                }
+                effects.append(.persistState(text, recoverHealthOnSave: effect.forProperty("recoverHealthOnSave")?.toBool() == true))
+            case "restart-interval":
+                effects.append(.restartInterval(minutes: Int(effect.forProperty("intervalMinutes")?.toInt32() ?? 0)))
+            case "stop-interval":
+                effects.append(.stopInterval)
+            default:
+                throw QuoteRuntimeError.javascript("Unknown engine effect: \(type)")
+            }
+        }
+        model = nextModel
+        return effects
     }
 
     private func checkException() throws {

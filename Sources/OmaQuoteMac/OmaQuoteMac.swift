@@ -1,7 +1,8 @@
-import Foundation
+import AppKit
 import OmaQuoteCore
 
 @main
+@MainActor
 struct OmaQuoteMac {
     static func main() throws {
         if CommandLine.arguments.contains("--self-test") {
@@ -9,9 +10,11 @@ struct OmaQuoteMac {
             print("OmaQuoteCore self-test passed")
             return
         }
-        let runtime = try QuoteRuntime()
-        try runtime.initialize(collectionJSON: QuoteRuntime.bundledCollection())
-        print(try runtime.statusJSON())
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        let delegate = OmaQuoteAppDelegate()
+        app.delegate = delegate
+        app.run()
     }
 
     private static func selfTest() throws {
@@ -45,5 +48,28 @@ struct OmaQuoteMac {
         } catch QuoteRuntimeError.invalidCollection {
             // Expected: the same strict validation as in OmaQuote.
         }
+    }
+}
+
+@MainActor
+private final class OmaQuoteAppDelegate: NSObject, NSApplicationDelegate {
+    private var host: QuoteHost?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        do {
+            let host = QuoteHost()
+            try host.start()
+            self.host = host
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "OmaQuote could not start"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+            NSApp.terminate(nil)
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        host?.stop()
     }
 }

@@ -1,35 +1,52 @@
 # OmaQuote for macOS
 
-Native macOS project for a desktop Quote Surface inspired by [OmaQuote](https://github.com/snikulin/omaquote). This repository currently contains a **working core integration spike**, not a finished desktop app. `swift run OmaQuoteMac` validates the bundled Quote Collection, selects a Quote through the existing OmaQuote engine, and prints its Runtime Status. It does not yet draw on the desktop.
+Native, menu bar OmaQuote for macOS 26 on Apple Silicon. It shows one quotation on a transparent, click through desktop surface on each display. The selection engine and collection format come from [OmaQuote for Linux](https://github.com/snikulin/omaquote).
 
-## Development
+## Build and run
 
-Requirements: macOS 15 or later and Swift 6.3 Command Line Tools. The eventual `.app` bundle will require Xcode for GUI debugging and packaging.
+Xcode 27 is required. From this checkout:
 
 ```sh
-swift build
-swift run OmaQuoteMac --self-test
-swift run OmaQuoteMac
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
+Scripts/build-app.sh release
+dist/OmaQuote.app/Contents/MacOS/omaquote
 ```
 
-The self-test checks that the original JavaScript engine runs in JavaScriptCore, the bundled collection validates, Presentation History and Automatic Advance Pause behave as expected, and duplicate JSON keys are rejected. The installed Command Line Tools on the initial development machine lack both `Testing` and `XCTest`, so this smoke test is part of the executable for now.
+The `omaquote` command starts the menu bar app. It has no Dock icon. Its popover has the full quote, Previous, Pause/Resume, Next, visibility, reload, config, and quit controls. Left, Space, Right, and Escape work while the popover is open.
 
-## Reuse boundary
+The command also accepts `next`, `previous`, `pause`, `resume`, `togglePause`, `show`, `hide`, `toggle`, `reload`, and `status`. A command starts the app if needed; `status` prints JSON.
 
-- `Sources/OmaQuoteCore/Resources/JsonDocuments.js` and `QuoteEngine.js` are copied without edits from OmaQuote. The Swift bridge strips the QML-only `.pragma library` line at load time.
-- `Sources/OmaQuoteCore/Resources/quotes.json` is the bundled OmaQuote collection. Its text has separate provenance recorded in [docs/BUNDLED_QUOTES_SOURCES.md](docs/BUNDLED_QUOTES_SOURCES.md); the MIT code license does not automatically cover the quotations.
-- `QuoteRuntime.swift` is a small, single-threaded JavaScriptCore adapter. It currently exposes initialization, manual Advance, Backward Navigation, pause/resume, and status. It does **not** yet execute the engine's returned effects, so there is no persistence, Interval, collection reload, or wallpaper observation.
-- No Quickshell, Qt, Node.js, WebView, or Übersicht dependency is needed.
+```sh
+dist/OmaQuote.app/Contents/MacOS/omaquote next
+dist/OmaQuote.app/Contents/MacOS/omaquote status
+```
 
-The macOS application will supply a transparent, click-through Quote Surface on each display and native Quote Controls. Platform integration should keep the existing engine's semantics and use the [domain vocabulary](https://github.com/snikulin/omaquote/blob/main/CONTEXT.md). See [macOS alternatives research](docs/macos-alternatives.md) for technical constraints and source links.
+## Local Homebrew install
 
-## Next implementation steps
+This formula uses the local Git checkout. Commit changes before installing; Homebrew builds from committed `main`.
 
-1. Validate desktop-level transparent windows across Spaces, Show Desktop, Stage Manager, and multiple displays.
-2. Execute `update-presentation`, `persist-state`, `restart-interval`, and `stop-interval` effects in the Swift host.
-3. Add menu-bar Quote Controls, User Collection loading, atomic state writes, and configuration reload.
-4. Add optional best-effort Wallpaper Change detection after the basic Interval and manual controls work.
+```sh
+brew tap snikulin/omaquote-macos /Users/nik/pro/omaquote-macos
+brew install snikulin/omaquote-macos/omaquote
+omaquote
+```
+
+Installation builds the app but does not start it. The formula is tied to this checkout path and intended only for this Mac. There is no GitHub release, login item, or notarized distribution yet.
+
+## Configuration
+
+Edit `~/.config/omarchy/omaquote/config.json` for appearance and behavior. Its schema and defaults match Linux OmaQuote. If the file is absent, the defaults work; the popover's **Config…** action creates and opens a complete template. Put a custom Quote Collection in `~/.config/omarchy/omaquote/quotes.json`. Selection state is written atomically to `~/.local/state/omarchy/omaquote/state.json`.
+
+Changes to config and collection reload automatically. Invalid edits keep the last valid settings or collection, with the error shown in the popover and `omaquote status`.
+
+By default, a file wallpaper URL change advances the quote. Changes across displays during one poll yield one advance. The app checks every five seconds and reestablishes the baseline after wake or display changes. Dynamic and Aerial wallpaper changes without a new file URL cannot be detected; `status` reports `wallpaperDetection: "file-url-only"`. A configured positive interval works independently.
+
+## Source reuse
+
+`Sources/OmaQuoteCore/Resources/JsonDocuments.js` and `QuoteEngine.js` are copied without edits from Linux OmaQuote. The Swift bridge removes the QML only `.pragma library` header at load time. The bundled quote text has separate provenance in [docs/BUNDLED_QUOTES_SOURCES.md](docs/BUNDLED_QUOTES_SOURCES.md).
+
+The app uses AppKit and JavaScriptCore; it has no Quickshell, Qt, Node.js, WebView, or Übersicht dependency. The agreed MVP behavior is recorded in [.scratch/macos-mvp/spec.md](.scratch/macos-mvp/spec.md).
 
 ## License
 
-Code is MIT licensed; see [LICENSE](LICENSE). Bundled Quote text has separate terms and provenance in [docs/BUNDLED_QUOTES_SOURCES.md](docs/BUNDLED_QUOTES_SOURCES.md).
+Code is MIT licensed; see [LICENSE](LICENSE). Bundled quote text has separate terms and provenance in [docs/BUNDLED_QUOTES_SOURCES.md](docs/BUNDLED_QUOTES_SOURCES.md).
