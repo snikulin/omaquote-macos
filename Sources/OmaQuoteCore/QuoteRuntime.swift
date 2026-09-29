@@ -71,6 +71,13 @@ public final class QuoteRuntime {
         return try String(contentsOf: url, encoding: .utf8)
     }
 
+    public static func bundledConfiguration() throws -> String {
+        guard let url = Bundle.module.url(forResource: "default-config", withExtension: "json", subdirectory: "Resources") else {
+            throw QuoteRuntimeError.missingResource("default-config.json")
+        }
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
     public var currentQuote: Quote? {
         quote(from: model?.forProperty("activeQuote"))
     }
@@ -87,9 +94,7 @@ public final class QuoteRuntime {
         randomValues: [Double]? = nil
     ) throws -> [QuoteEffect] {
         let collection = try parse("parseCollection", raw: collectionJSON, error: QuoteRuntimeError.invalidCollection)
-        let configuration = try configurationJSON.map {
-            try parse("parseConfiguration", raw: $0, error: QuoteRuntimeError.invalidConfiguration)
-        } ?? invoke("defaultConfiguration", arguments: [])
+        let configuration = try effectiveConfiguration(configurationJSON)
         let state = try persistedStateJSON.map {
             try parse("parseState", raw: $0, error: QuoteRuntimeError.invalidState)
         }
@@ -161,7 +166,7 @@ public final class QuoteRuntime {
         let current = try currentModel()
         let parsed: JSValue
         do {
-            parsed = try parse("parseConfiguration", raw: configurationJSON, error: QuoteRuntimeError.invalidConfiguration)
+            parsed = try effectiveConfiguration(configurationJSON)
         } catch QuoteRuntimeError.invalidConfiguration(let message) {
             let result = try invoke("configurationReloadFailed", arguments: [current, message])
             return try applyResult(result, function: "configurationReloadFailed")
@@ -181,7 +186,7 @@ public final class QuoteRuntime {
     }
 
     public func defaultConfigurationJSON() throws -> String {
-        try stringify(invoke("defaultConfiguration", arguments: []))
+        try stringify(effectiveConfiguration(nil))
     }
 
     private func stringify(_ value: JSValue) throws -> String {
@@ -198,7 +203,26 @@ public final class QuoteRuntime {
     }
 
     public func validateConfiguration(_ raw: String) throws {
-        _ = try parse("parseConfiguration", raw: raw, error: QuoteRuntimeError.invalidConfiguration)
+        _ = try effectiveConfiguration(raw)
+    }
+
+    private func effectiveConfiguration(_ userJSON: String?) throws -> JSValue {
+        let bundledJSON = try Self.bundledConfiguration()
+        let defaults = try parse("parseConfiguration", raw: bundledJSON, error: QuoteRuntimeError.invalidConfiguration)
+        guard let userJSON else { return defaults }
+
+        // Validate the original text first so duplicate keys and unknown fields stay rejected.
+        _ = try parse("parseConfiguration", raw: userJSON, error: QuoteRuntimeError.invalidConfiguration)
+        guard var merged = try JSONSerialization.jsonObject(with: Data(bundledJSON.utf8)) as? [String: Any],
+              let overrides = try JSONSerialization.jsonObject(with: Data(userJSON.utf8)) as? [String: Any] else {
+            throw QuoteRuntimeError.invalidConfiguration("Configuration must be an object")
+        }
+        for (field, value) in overrides { merged[field] = value }
+        let mergedData = try JSONSerialization.data(withJSONObject: merged)
+        return try parse(
+            "parseConfiguration", raw: String(decoding: mergedData, as: UTF8.self),
+            error: QuoteRuntimeError.invalidConfiguration
+        )
     }
 
     public func validateState(_ raw: String) throws {

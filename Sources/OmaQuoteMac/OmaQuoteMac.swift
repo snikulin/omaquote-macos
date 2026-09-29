@@ -18,6 +18,9 @@ struct OmaQuoteMac {
     }
 
     private static func selfTest() throws {
+        if Bundle.main.bundlePath.hasSuffix(".app") {
+            precondition(NSFont(name: "Monaspace Krypton", size: 20) != nil)
+        }
         let bundled = try QuoteRuntime()
         try bundled.initialize(collectionJSON: QuoteRuntime.bundledCollection(), randomValues: [0, 0, 0])
         precondition(bundled.currentQuote != nil)

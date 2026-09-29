@@ -1,8 +1,8 @@
 class Omaquote < Formula
   desc "Native desktop Quote Surface for macOS"
-  homepage "https://github.com/snikulin/omaquote"
-  url "file:///Users/nik/pro/omaquote-macos", using: :git, branch: "main"
-  version "0.1.0"
+  homepage "https://github.com/snikulin/omaquote-macos"
+  url "https://github.com/snikulin/omaquote-macos.git", using: :git, tag: "v0.1.2"
+  version "0.1.2"
 
   depends_on :macos
 
@@ -13,8 +13,8 @@ class Omaquote < Formula
 
   def caveats
     <<~EOS
-      Run `omaquote` to start the menu bar app. This first formula builds from
-      the local checkout at /Users/nik/pro/omaquote-macos with Xcode.
+      Run `omaquote` to start the menu bar app. Xcode 27 is required to build
+      the app from source. The app is not notarized.
     EOS
   end
 end

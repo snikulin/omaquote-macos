@@ -1,5 +1,5 @@
-# Issue tracker: local Markdown
+# Issue tracker
 
-Until a GitHub repository is configured, specifications and implementation notes live under `.scratch/<feature>/` in this repository. The specification for the macOS MVP is `.scratch/macos-mvp/spec.md`.
+Use [GitHub Issues](https://github.com/snikulin/omaquote-macos/issues) for new bugs and features. The originating macOS MVP specification is [docs/specs/macos-mvp.md](../specs/macos-mvp.md).
 
-When a skill needs the originating specification, read that file. New follow-up issues may be added as numbered Markdown files under `.scratch/<feature>/issues/`.
+When reviewing implementation against the original scope, read that specification. For subsequent work, use the issue linked from the relevant commit or pull request.

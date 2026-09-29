@@ -1,7 +1,18 @@
 # OmaQuote macOS MVP specification
 
-Status: confirmed by the user on 2026-09-29.
-Review baseline: `d2c9a59` on `main`.
+Status: MVP decisions confirmed by the user on 2026-09-29. The public-release
+decisions below supersede earlier distribution and bundled-content choices.
+
+## Public-release revision (2026-09-29)
+
+- Bundle the original 15-Quote collection with documented public-domain sources.
+- Keep the user's 119-Quote personal collection in the user's local
+  `quotes.json`; it is not included in the public repository or Git history.
+- Bundle the user-selected configuration as the default: interval 10 minutes, Monaspace Krypton, 20/12 font sizes, white quote text, light gray attribution, and gray backdrop. Its unspecified settings retain the Linux engine defaults.
+- A partial user `config.json` overrides those bundled values field by field. An absent user config uses the bundle; the menu action creates a complete effective template.
+- Include Monaspace Krypton Regular in the app so the default font renders on this Mac. Keep its OFL license with the font.
+- Publish the source in `snikulin/omaquote-macos`; Homebrew builds from the public Git tag. The app remains unsigned by a Developer ID and is not notarized.
+- The Linux rendering and configuration schema remain the compatibility baseline; the bundled macOS values above are the defaults for a fresh installation.
 
 ## Product
 
@@ -19,20 +30,20 @@ Review baseline: `d2c9a59` on `main`.
 
 ## Presentation
 
-- Preserve the Linux configuration schema and defaults, layout geometry, horizontal alignment, vertical placement, width/height limits, margins, font fitting down to minimum size, ellipsis on overflow, attribution with an em dash at 85% font size, card padding/gap/radius, backdrop opacity, and optional shadow.
+- Preserve the Linux configuration schema and rendering behavior: layout geometry, horizontal alignment, vertical placement, width/height limits, margins, font fitting down to minimum size, ellipsis on overflow, attribution with an em dash at 85% font size, card padding/gap/radius, backdrop opacity, and optional shadow. Use the bundled macOS configuration for initial values.
 - With `fontFamily: null`, use a monospace font. With null colors, use the Linux fallback palette: text `#cacccc`, attribution `#707880`, backdrop `#101315`.
 
 ## Automatic advance
 
-- Preserve the Linux defaults: Interval 0 and Wallpaper Change enabled. A positive interval starts a timer; each Advance begins a full new interval. Pause blocks interval and wallpaper advances while preserving manual controls.
+- Use the bundled defaults: a ten-minute interval and Wallpaper Change enabled. Each Advance begins a full new interval. Pause blocks interval and wallpaper advances while preserving manual controls.
 - Observe the file URL of the wallpaper on each active screen. Establish a baseline on startup, wake, and display changes. Coalesce a batch of actual URL changes into exactly one Advance. Dynamic/Aerial changes that do not change a file URL cannot be detected reliably; expose the file-URL-only limitation in `status` while the interval remains independent.
 
 ## CLI and installation
 
 - A `omaquote` command supports `next`, `previous`, `pause`, `resume`, `togglePause`, `show`, `hide`, `toggle`, `reload`, and `status`. If the app is not running, a command launches it, waits for readiness, and executes once. `status` returns JSON.
-- A local Homebrew formula builds the app from this checkout with Xcode and installs the `.app` and command. Installation does not launch the app. GitHub distribution, signing/notarization, and launch at login are outside this MVP.
+- A Homebrew formula builds the app from a public GitHub source tag with Xcode and installs the `.app` and command. Installation does not launch the app. Developer ID signing, notarization, and launch at login are outside this release.
 
 ## Verification and delivery
 
-- Work on `main` and commit the implementation. Run `code-review` on the diff from `d2c9a59` using this specification.
+- Commit the implementation and review it against this specification.
 - Use TDD at the public engine/effect, file loading/persistence, and CLI seams. Verify desktop windows manually on this Mac. Run focused tests during implementation and the full suite once at the end.

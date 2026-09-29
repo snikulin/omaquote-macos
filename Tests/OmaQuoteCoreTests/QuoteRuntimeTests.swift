@@ -6,14 +6,60 @@ final class QuoteRuntimeTests: XCTestCase {
         {"version":1,"quotes":[{"text":"First"},{"text":"Second"}]}
         """
 
+    func testBundledContentUsesVerifiedCollectionAndDefaultConfiguration() throws {
+        let document = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(QuoteRuntime.bundledCollection().utf8)
+        ) as? [String: Any])
+        let quotes = try XCTUnwrap(document["quotes"] as? [[String: String]])
+        XCTAssertEqual(quotes.count, 15)
+        XCTAssertEqual(quotes.first?["attribution"], "Ralph Waldo Emerson")
+
+        let runtime = try QuoteRuntime()
+        try runtime.initialize(collectionJSON: collection, randomValues: [0, 0])
+        let defaults = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(runtime.configurationJSON().utf8)
+        ) as? [String: Any])
+        XCTAssertEqual(defaults["intervalMinutes"] as? Int, 10)
+        XCTAssertEqual(defaults["fontFamily"] as? String, "Monaspace Krypton")
+        XCTAssertEqual(defaults["preferredFontSize"] as? Int, 20)
+        XCTAssertEqual(defaults["textColor"] as? String, "#FFFFFF")
+        XCTAssertEqual(defaults["attributionColor"] as? String, "#D9D9D9")
+        XCTAssertEqual(defaults["backdropColor"] as? String, "#505050")
+    }
+
+    func testPartialUserConfigurationOverridesBundledDefaults() throws {
+        let runtime = try QuoteRuntime()
+        try runtime.initialize(
+            collectionJSON: collection,
+            configurationJSON: #"{"version":1,"shadow":true}"#,
+            randomValues: [0, 0]
+        )
+        let effective = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(runtime.configurationJSON().utf8)
+        ) as? [String: Any])
+        XCTAssertEqual(effective["intervalMinutes"] as? Int, 10)
+        XCTAssertEqual(effective["fontFamily"] as? String, "Monaspace Krypton")
+        XCTAssertEqual(effective["shadow"] as? Bool, true)
+    }
+
+    func testPartialFontOverrideMustFitBundledPreferredSize() throws {
+        let runtime = try QuoteRuntime()
+        XCTAssertThrowsError(try runtime.validateConfiguration(
+            #"{"version":1,"minimumFontSize":22}"#
+        ))
+        XCTAssertNoThrow(try runtime.validateConfiguration(
+            #"{"version":1,"preferredFontSize":24,"minimumFontSize":22}"#
+        ))
+    }
+
     func testSelectionAndPauseReturnEffectsForTheHost() throws {
         let runtime = try QuoteRuntime()
 
         let initial = try runtime.initialize(collectionJSON: collection, randomValues: [0, 0])
-        XCTAssertEqual(initial.map(\.kind), [.updatePresentation, .persistState])
+        XCTAssertEqual(initial.map(\.kind), [.updatePresentation, .persistState, .restartInterval])
 
         let advanced = try runtime.next(randomValues: [0, 0])
-        XCTAssertEqual(advanced.map(\.kind), [.updatePresentation, .persistState])
+        XCTAssertEqual(advanced.map(\.kind), [.updatePresentation, .persistState, .restartInterval])
 
         let paused = try runtime.pause()
         XCTAssertEqual(paused.map(\.kind), [.stopInterval])
