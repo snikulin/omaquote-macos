@@ -1,6 +1,6 @@
 # OmaQuote for macOS
 
-OmaQuote for macOS places a quotation on the desktop without changing the wallpaper. It is a native menu bar app for macOS 26 on Apple Silicon, built for people who want the [Linux OmaQuote](https://github.com/snikulin/omaquote) experience on a Mac.
+OmaQuote for macOS places a quotation on the desktop and can rotate one wallpaper across all displays and Spaces. It is a native menu bar app for macOS 26 on Apple Silicon, built for people who want the [Linux OmaQuote](https://github.com/snikulin/omaquote) experience on a Mac.
 
 I could not find a macOS counterpart with OmaQuote's combination of a click-through desktop surface, one shared quote across displays, local JSON collections, history, pause, wallpaper-change detection, and automation commands. I built the native macOS app from scratch around the portable JavaScript engine from Linux OmaQuote. The [alternatives research](docs/macos-alternatives.md) explains what was compared; other quote apps do exist.
 
@@ -10,6 +10,7 @@ I could not find a macOS counterpart with OmaQuote's combination of a click-thro
 - A menu bar popover with the full quote, Previous, Pause/Resume, Next, visibility, reload, and config actions.
 - A bundled collection of 15 quotes with [documented sources](docs/BUNDLED_QUOTES_SOURCES.md); a local `quotes.json` can replace it.
 - A ten-minute interval by default, plus best-effort detection when the file URL of a wallpaper changes.
+- Synchronized random wallpapers from a local folder, with an independent interval and a manual change button.
 - The Linux OmaQuote configuration schema, shuffle/history behavior, and CLI commands.
 
 ## Install from GitHub with Homebrew
@@ -50,6 +51,12 @@ Edit these files to customize the app:
 The **Config…** action creates and opens a complete template if `config.json` is absent. File changes reload automatically. An invalid edit leaves the last valid configuration or collection active and reports the error in the popover and `omaquote status`.
 
 Partial configs are checked after they inherit the bundled values. For example, raising `minimumFontSize` above the bundled `preferredFontSize` of 20 also requires setting a higher `preferredFontSize`.
+
+## Wallpapers
+
+At launch, OmaQuote picks a readable image directly in `~/wallpapers` and starts rotating every 10 minutes. Use **Wallpaper Folder…** to choose another directory, the interval menu to adjust the schedule or turn it **Off**, and **Next Wallpaper** to change the image immediately. The folder and interval are saved in macOS app preferences. With automatic rotation off, the manual button is still available.
+
+OmaQuote sets a single global wallpaper in the current user's macOS wallpaper store. It saves the original store to `~/.local/state/omarchy/omaquote/wallpaper-index-backup.plist` on first use. The store format is private to macOS, so the app reports an error if its structure is unsupported or the new image cannot be confirmed.
 
 ## Command line
 

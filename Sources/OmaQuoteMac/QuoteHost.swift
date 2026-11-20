@@ -5,6 +5,7 @@ import OmaQuoteCore
 final class QuoteHost: NSObject {
     private let store: QuoteFileStore
     private let surfaces = QuoteSurfaceManager()
+    let wallpaperRotation: WallpaperRotation
     private var runtime: QuoteRuntime!
     private var presentation: PresentationConfiguration!
     private var statusItem: NSStatusItem!
@@ -22,6 +23,7 @@ final class QuoteHost: NSObject {
 
     init(store: QuoteFileStore = QuoteFileStore()) {
         self.store = store
+        wallpaperRotation = WallpaperRotation(stateDirectory: store.stateURL.deletingLastPathComponent())
         super.init()
     }
 
@@ -97,11 +99,15 @@ final class QuoteHost: NSObject {
                                                name: NSApplication.didChangeScreenParametersNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(didWake),
                                                           name: NSWorkspace.didWakeNotification, object: nil)
+        wallpaperRotation.onStatusChange = { [weak self] in self?.refresh() }
+        wallpaperRotation.onWallpaperChanged = { [weak self] in self?.managedWallpaperChanged() }
+        wallpaperRotation.start()
     }
 
     func stop() {
         inputTimer?.invalidate()
         wallpaperTimer?.invalidate()
+        wallpaperRotation.stop()
         intervalTimer?.invalidate()
         if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor) }
         commandServer?.stop()
@@ -147,6 +153,9 @@ final class QuoteHost: NSObject {
     func statusJSON() throws -> String {
         var document = try JSONSerialization.jsonObject(with: Data(runtime.statusJSON().utf8)) as? [String: Any] ?? [:]
         document["wallpaperDetection"] = "file-url-only"
+        document["wallpaperFolder"] = wallpaperRotation.folderPath
+        document["wallpaperIntervalMinutes"] = wallpaperRotation.intervalMinutes
+        if let error = wallpaperRotation.error { document["wallpaperRotationError"] = error }
         if let hostError { document["hostError"] = hostError }
         let data = try JSONSerialization.data(withJSONObject: document, options: [.sortedKeys, .fragmentsAllowed])
         return String(decoding: data, as: UTF8.self)
@@ -172,6 +181,7 @@ final class QuoteHost: NSObject {
         }
         refresh()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor) }
         keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.popover.isShown else { return event }
             switch event.keyCode {
@@ -237,7 +247,7 @@ final class QuoteHost: NSObject {
             quote: runtime.currentQuote,
             canPrevious: status["canGoPrevious"] as? Bool ?? false,
             paused: status["automaticAdvancePaused"] as? Bool ?? false,
-            error: hostError ?? (status["lastError"] as? String),
+            error: wallpaperRotation.error ?? hostError ?? (status["lastError"] as? String),
             visible: visible
         )
     }
@@ -278,6 +288,7 @@ final class QuoteHost: NSObject {
     }
 
     private func rebaselineWallpaper() throws {
+        guard !wallpaperRotation.isApplying else { return }
         if let signature = currentWallpaperSignature() {
             wallpaperSignature = signature
             try apply(runtime.rebaselineWallpaper(pathSignature: signature))
@@ -288,6 +299,7 @@ final class QuoteHost: NSObject {
     }
 
     private func pollWallpaper() {
+        guard !wallpaperRotation.isApplying else { return }
         do {
             guard let signature = currentWallpaperSignature() else {
                 wallpaperSignature = nil
@@ -297,10 +309,24 @@ final class QuoteHost: NSObject {
             if wallpaperSignature == nil {
                 try rebaselineWallpaper()
             } else if signature != wallpaperSignature {
-                wallpaperSignature = signature
-                try apply(runtime.observeWallpaper(pathSignature: signature))
+                try observeWallpaper(signature)
             }
         } catch { showError(error) }
+    }
+
+    private func managedWallpaperChanged() {
+        guard let signature = currentWallpaperSignature() else { return }
+        do {
+            // Rotation already confirmed an actual change, even if the observer missed its previous state.
+            try runtime.rebaselineWallpaper(pathSignature: "")
+            try observeWallpaper(signature)
+        } catch { showError(error) }
+    }
+
+    private func observeWallpaper(_ signature: String) throws {
+        let effects = try runtime.observeWallpaper(pathSignature: signature)
+        wallpaperSignature = signature
+        try apply(effects)
     }
 
     @objc private func screenParametersChanged() {
